@@ -1,0 +1,1570 @@
+---
+title: "Rim Finishing Skill Development"
+author: "A data analysis of how players players' develop at the skill component of rim finishing"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 4
+    toc_float: true
+    code_folding: hide
+---
+
+
+```{r, message=F, warning=F}
+library(tidyverse)
+library(readxl)
+library(plotly)
+library(hablar)
+library(paletteer)
+library(prismatic)
+library(extrafont)
+library(scales)
+library(ggrepel)
+library(gridExtra)
+library(ggcorrplot)
+library(prismatic)
+
+setwd("~/Data Science/Basketball/Projects/Rim Shooting")
+rim_data <- read.csv("rim_data.csv")
+
+
+### Load theme for graphics
+theme_personal <- function (x) { 
+  theme_minimal(base_size=12, base_family="Avenir") %+replace% 
+    theme(
+      panel.grid.minor = element_blank(),
+      #panel.grid.major.x = element_blank(),
+      panel.grid.major = element_line(color = 'gray91', size = .5),
+      #plot.background = element_rect(fill = 'ghostwhite', color = 'ghostwhite'),
+      #panel.border = element_rect(fill = NA, color = 'gray91', size = 1),
+      axis.title.x = element_text(vjust = -1.5, size = 14),
+      axis.title.y = element_text(vjust = 3, angle = 90, size = 14),
+      plot.margin = margin(25, 25, 12.5, 25),
+      plot.caption = element_text(vjust = -1.7, hjust = 1, size = 9, color = 'gray50'),
+      plot.title = element_text(size = 20, hjust = 0, vjust = 4.3),
+      plot.subtitle = element_text(size = 12, hjust = 0.0, vjust = 5)
+    )
+}
+
+
+## Setup dataset that only includes players with 3+ years experience and their rookie or 
+## second seasons in the dataset
+
+cons0_setup <- rim_data %>%
+  group_by(player) %>%
+  mutate(seasons = n_distinct(season)) %>%
+  filter(seasons > 2) %>%
+  ungroup() %>%
+  filter(ysd == 0 | ysd == 1) %>%
+  group_by(player) %>%
+  summarise(avg_min = mean(minutes))
+
+full_players_cons0 <- as.list(cons0_setup$player)
+
+cons0_results <- filter(rim_data, player %in% full_players_cons0)
+
+
+
+## Assign players to groups based on their career accuracy on NON-DUNKS
+career_nd_acc_group <- cons0_results %>%
+  filter(non_dunk_rim_fga > 50) %>%
+  group_by(player) %>%
+  mutate(seasons = n_distinct(season)) %>%
+  filter(seasons > 1) %>%
+  ungroup() %>%
+  group_by(player, season) %>%
+  summarize(
+    rim_attempts = sum(rim_fga),
+    nd_att = sum(non_dunk_rim_fga),
+    nd_acc = sum(non_dunk_rim_fgm),
+    nd_rim_acc = mean(non_dunk_rim_accuracy)
+  ) %>%
+  arrange(player, nd_rim_acc) %>%
+  slice_max(nd_rim_acc, n = 2) %>%
+  mutate(peak_nd_rim_acc = sum(nd_acc)/sum(nd_att)) %>%
+  group_by(player) %>%
+  summarize(
+    peak_nd_rim_acc = mean(peak_nd_rim_acc)
+  ) %>%
+  mutate(career_nd_acc_group = (case_when(peak_nd_rim_acc < 0.5365 ~ "Poor",
+                                          peak_nd_rim_acc < 0.5815 ~ "Below Avg",
+                                          peak_nd_rim_acc < 0.6180 ~ "Above Avg",
+                                          peak_nd_rim_acc > 0.6180 ~ "Elite")))
+
+
+## Player groupings - NON-DUNKS VS DUNK GROUP
+career_nd_acc_diff_group <- cons0_results %>%
+  filter(non_dunk_rim_fga > 50) %>%
+  group_by(player) %>%
+  mutate(seasons = n_distinct(season)) %>%
+  filter(seasons > 1) %>%
+  ungroup() %>%
+  group_by(player, season) %>%
+  summarize(
+    rim_attempts = sum(rim_fga),
+    nd_att = sum(non_dunk_rim_fga),
+    nd_acc = sum(non_dunk_rim_fgm),
+    nd_rim_acc_diff = mean(diff_vs_dunk_non_dunk_rim_accuracy)
+  ) %>%
+  arrange(player, nd_rim_acc_diff) %>%
+  slice_max(nd_rim_acc_diff, n = 2) %>%
+  mutate(peak_nd_rim_acc_diff = mean(nd_rim_acc_diff)) %>%
+  group_by(player) %>%
+  summarize(
+    #nd_att = sum(nd_att),
+    peak_nd_rim_acc_diff = mean(peak_nd_rim_acc_diff)
+  ) %>%
+  mutate(career_nd_acc_diff_group = (case_when(peak_nd_rim_acc_diff < 0.003665 ~ "Poor",
+                                               peak_nd_rim_acc_diff < 0.041432 ~ "Below Avg",
+                                               peak_nd_rim_acc_diff < 0.077682 ~ "Above Avg",
+                                               peak_nd_rim_acc_diff > 0.077682 ~ "Elite")))
+
+
+## Player groupings - ALL RIM ATTEMPTS VS DUNK GROUP
+career_acc_diff_group <- cons0_results %>%
+  filter(non_dunk_rim_fga > 50) %>%
+  group_by(player) %>%
+  mutate(seasons = n_distinct(season)) %>%
+  filter(seasons > 1) %>%
+  ungroup() %>%
+  group_by(player, season) %>%
+  summarize(
+    rim_att = sum(rim_fga),
+    rim_make = sum(rim_fgm),
+    rim_acc_diff = mean(diff_vs_dunk_rim_accuracy)
+  ) %>%
+  arrange(player, rim_acc_diff) %>%
+  slice_max(rim_acc_diff, n = 2) %>%
+  mutate(peak_rim_acc_diff = mean(rim_acc_diff)) %>%
+  group_by(player) %>%
+  summarize(
+    #nd_att = sum(nd_att),
+    peak_rim_acc_diff = mean(peak_rim_acc_diff)
+  ) %>%
+  mutate(career_acc_diff_group = (case_when(peak_rim_acc_diff < 0.001372 ~ "Poor",
+                                            peak_rim_acc_diff < 0.035981 ~ "Below Avg",
+                                            peak_rim_acc_diff < 0.068598 ~ "Above Avg",
+                                            peak_rim_acc_diff > 0.068598 ~ "Elite")))
+
+
+## Player Groupings - ALL RIM ATTEMPTS, but caliber determined on a relative basis 
+## according to position
+career_acc_group <- cons0_results %>%
+  filter(non_dunk_rim_fga > 50) %>%
+  group_by(player) %>%
+  mutate(seasons = n_distinct(season)) %>%
+  filter(seasons > 1) %>%
+  ungroup() %>%
+  group_by(player, season) %>%
+  summarize(
+    pos = pos_group,
+    rim_att = sum(rim_fga),
+    rim_make = sum(rim_fgm),
+    rim_acc = mean(rim_accuracy)
+  ) %>%
+  arrange(player, rim_acc) %>%
+  slice_max(rim_acc, n = 2) %>%
+  mutate(peak_rim_acc = sum(rim_make)/sum(rim_att)) %>%
+  group_by(player) %>%
+  summarize(
+    pos = max(pos),
+    peak_rim_acc = mean(peak_rim_acc)
+  ) %>%
+  mutate(career_acc_group = (case_when(pos == 1 & peak_rim_acc < 0.5658 ~ "Poor",
+                                       pos == 1 & peak_rim_acc < 0.6051 ~ "Below Avg",
+                                       pos == 1 & peak_rim_acc < 0.6321 ~ "Above Avg",
+                                       pos == 1 & peak_rim_acc > 0.6321 ~ "Elite",
+                                       pos == "Wing" & peak_rim_acc < 0.6063 ~ "Poor",
+                                       pos == "Wing" & peak_rim_acc < 0.6389 ~ "Below Avg",
+                                       pos == "Wing" & peak_rim_acc < 0.6643 ~ "Above Avg",
+                                       pos == "Wing" & peak_rim_acc > 0.6643 ~ "Elite",
+                                       pos == 4 & peak_rim_acc < 0.6237 ~ "Poor",
+                                       pos == 4 & peak_rim_acc < 0.6629 ~ "Below Avg",
+                                       pos == 4 & peak_rim_acc < 0.6923 ~ "Above Avg",
+                                       pos == 4 & peak_rim_acc > 0.6923 ~ "Elite",
+                                       pos == 5 & peak_rim_acc < 0.6387 ~ "Poor",
+                                       pos == 5 & peak_rim_acc < 0.6799 ~ "Below Avg",
+                                       pos == 5 & peak_rim_acc < 0.7116 ~ "Above Avg",
+                                       pos == 5 & peak_rim_acc > 0.7116 ~ "Elite")))
+
+
+## Set up data for yoy plots
+yoy_rim_data <- cons0_results %>%
+  merge(career_acc_group, by = "player") %>%
+  merge(career_acc_diff_group, by = "player") %>%
+  merge(career_nd_acc_group, by = "player") %>%
+  merge(career_nd_acc_diff_group, by = "player") 
+
+## Arrange factor varianbles in appropriate order/level
+yoy_rim_data$career_acc_group <- factor(yoy_rim_data$career_acc_group, 
+                                         levels = c("Elite", "Above Avg", "Below Avg", "Poor"))
+
+yoy_rim_data$career_acc_diff_group <- factor(yoy_rim_data$career_acc_diff_group, 
+                                         levels = c("Elite", "Above Avg", "Below Avg", "Poor"))
+
+yoy_rim_data$career_nd_acc_group <- factor(yoy_rim_data$career_nd_acc_diff_group, 
+                                         levels = c("Elite", "Above Avg", "Below Avg", "Poor"))
+
+yoy_rim_data$career_nd_acc_diff_group <- factor(yoy_rim_data$career_nd_acc_diff_group, 
+                                         levels = c("Elite", "Above Avg", "Below Avg", "Poor"))
+
+yoy_rim_data$career_nd_acc_diff_group <- factor(yoy_rim_data$career_nd_acc_diff_group, 
+                                         levels = c("Elite", "Above Avg", "Below Avg", "Poor"))
+
+```
+
+
+### Introduction
+
+Despite the increased attention that the 3-point shot has received from teams, fans, and media over the last decade, the gold standard field goal attempt in basketball is still a shot at the rim. Yes, the value proposition between the two shots has changed given the rapidly evolving skillsets of players in the modern NBA.  But with a range of expected field goal percentages on a given shot that essentially tops out at 100%, the rim attempt is the greatest threat in basketball, and remains the point from which all second and third order effects on gameplay strategy stem.
+
+So how do we evaluate players’ abilities to create and convert these important shots from a player development perspective? Are players able to improve these skills over time? While there are many different ways to analyze these questions, this analysis will use insights from data and focus on players’ shooting ability at the rim (rather than the opportunities they create), the degree to which it fluctuates year-over-year and what that means for tracking players' development.
+
+### Controlling for Context
+
+Unlike 3-point shooting, where 3-point field goal percentage (with a large enough sample) does reasonably well to convey how skilled of a 3-point shooter someone is and whether that player is improving in a meaningful way, a player’s field goal percentage at the rim isn’t nearly as conclusive in evaluating shooting ability there.
+
+The reason for that is while contextual factors impact both measurements, the effect of context is greater for shots at the rim. No matter the context surrounding a 3-point field goal (such as the nearest defender, or whether it’s a catch-and-shoot look), the expected percentage of that shot will exceed 60% in only extreme cases (think Steph Curry, standing in the corner without a defender in sight). Rim attempts, on the other hand, can have expected field goal percentages approaching 100% in a variety of frequent scenarios. 
+
+As a result, controlling for context is necessary to isolate the quality of the shot opportunity, which then allows for a more accurate analysis of a player’s actual shooting ability (not that a player’s ability to generate quality looks at the rim isn’t important, of course. It’s just considered to be better analyzed separately).
+
+To better understand the context surrounding the quality of any given attempt at the rim, I’ve organized it in the following framework:
+
+```{r}
+
+# Quadrant diagram showing contributing contextual factors
+wd = getwd()
+htmltools::img(src = knitr::image_uri(paste0(wd, "/shot_quality_chart.png")),
+               alt = 'logo', 
+               style = 'padding:5px; width: 520px; height: 250px')
+
+```
+
+
+Without a publicly available shot quality metric that’s both reliable and has a narrow enough focus on rim attempts, it’s basically impossible to eliminate all opportunity related context described above. One step to begin to control for it is eliminating dunks from the sample of attempts at the rim.
+
+Most of what makes up a successful dunk is a combination of opportunity related context and a player’s physical profile. In other words, getting to a position to dunk goes a lot further in determining the outcome of the shot than the ability to drop the ball through the hoop from just above it.
+
+Non-dunks, on the other hand, by definition require some amount of shooting touch, which, theoretically, has some degree of variance year-over-year. Determining how much of this variance is attributable to improvement in touch around the rim can help a player development group understand if it improvement is possible, and if so, at what rate it can be reasonably expected to happen.
+
+--
+
+Now our metric – accuracy on non-dunks at the rim – we can prepare for analyzing the data (most of which was sourced from PBPstats.com, with the count of a player’s dunks for a given season being scraped from basketball-reference.com).
+
+In order to improve the data comparability across the population of players, a determination should be made of what variables, if any, should be controlled for. Some potential variables are included in the following correlogram, where values closer to 1 or -1 represent a relationship between two variables that's highly correlated.
+
+
+```{r, message=F, warning=F}
+
+# Correlogram
+
+rim_data %>%
+  filter(rim_fga > 100) %>%
+  select(`rim_accuracy`, 
+         `non_dunk_rim_accuracy`, 
+         `position`,
+         `rim_frequency`,
+         `height_in`, 
+         `self_created_rim_pct`, 
+         `rim_dunk_pct`) %>%
+  cor() %>%
+  ggcorrplot(method = "square", type = "lower", ggtheme = theme_personal, lab = T) +
+  scale_x_discrete(labels=c("non_dunk_rim_accuracy" = "Non-Dunk Accuracy", "position" = "Position",
+                              "rim_frequency" = "Rim Freq", "height_in" = "Height", 
+                            "self_created_rim_pct" = "Self Created Rim %", "rim_dunk_pct" = "Dunk %")) +
+  scale_y_discrete(labels=c("non_dunk_rim_accuracy" = "Non-Dunk Accuracy", "position" = "Position",
+                              "rim_frequency" = "Rim Freq", "height_in" = "Height", 
+                            "self_created_rim_pct" = "Self Created Rim %", "rim_accuracy" = "Rim Accuracy"))
+
+```
+
+
+Dunk percentage has highest correlation with the variables we care about in the above plot – rim accuracy and, more importantly, non-dunk rim accuracy. 
+
+The following plot illustrates the strong effect of dunk rate on accuracy of non-dunks and all rim attempts (plot includes ability to hover over data points for more information about each player season).
+
+```{r, message=F, warning=F}
+
+## -- Dunk Rate Effect -- ##
+
+plotly1 <- rim_data %>%
+  filter(non_dunk_rim_fga > 50,
+         season > 2010) %>%
+  ggplot(aes(non_dunk_rim_accuracy, rim_accuracy)) +
+  geom_abline(intercept = 0,
+              slope = 1,
+              size = .35,
+              color = "gray90") +
+  geom_point(aes(text = paste0(player,
+                               "<br>Season: ", season,
+                               "<br>Rim Accuracy Percentile: ", round((percent_rank(rim_accuracy)*100),0),
+                               "<br>Non-Dunk Accuracy Percentile: ", round((percent_rank(non_dunk_rim_accuracy)*100),0),
+                               "<br>Non-Dunk Rim FGA: ", non_dunk_rim_fga,
+                               "<br>Dunk%: ", round((rim_dunk_pct * 100), 0)),
+                 fill = rim_dunk_pct,
+                 color = after_scale(clr_darken(fill, 0.15))),
+             shape = 21, size = 1.5, alpha = .6) +
+  geom_smooth(method = "loess", color = "black", linetype = "dashed", se = F) +
+  scale_fill_gradient2(
+    midpoint = .22,
+    low = "steelblue1",
+    mid = "darkorchid2",
+    high = "coral",
+    labels = function(x) paste0(round(as.numeric(x*100)), "%")) + 
+  scale_x_continuous(
+    labels = function(x) paste0(round(as.numeric(x*100)), "%"), 
+    breaks = seq(.25, .75, .1), 
+    limits = c(.25, .75)) + 
+  scale_y_continuous(
+    labels = function(x) paste0(round(as.numeric(x*100)), "%"), 
+    breaks = seq(.35, .85, .1), 
+    limits = c(.35, .85)) + 
+  labs(x = "Non-Dunk FG%", 
+       y = "Rim FG%", 
+       title = "Dunk Rate Effect", 
+       subtitle = "Individual season rim accuracy | 2011 - 2021",
+       fill = "Dunk %",
+       color = "Dunk %") +
+  theme_personal() +
+  theme(plot.title = element_text(hjust = 0),
+        plot.subtitle = element_text(hjust = 0.0))
+
+
+ggplotly(plotly1, tooltip = "text") %>%
+  layout(title = list(text = paste0('Dunk Rate Effect',
+                                    '<br>',
+                                    '<sup>',
+                                    'Individual season rim accuracy | 2011 - 2021',
+                                    '</sup>')))
+
+```
+
+
+In order to account for the impact of dunk rate seen in the above plot, player seasons have been stratified into one of six groups based on player dunk rate for a given season. Average field goal percentage at the rim for each dunk group for each season (minimum 50 non-dunk rim attempts) was then calculated and compared to the rim field goal percentage of players within the respective dunk group in order to determine how much better or worse a player shot at the rim compared to players with a similar profile.
+
+The plot below shows the field goal percentage difference between players’ rim accuracy averages for a given season (overall and only on non-dunks) and that of their respective dunk group. Points below the perforated line represent players who fared better on non-dunk rim attempts relative to their peers than they did on all rim attempts, and vice versa for points above the perforated line (note, the ability to zoom on sections of each plot via the + icon in the top right, in addition to hover functionality).
+
+
+```{r, message=F, warning=F}
+
+## -- Dunk Group by Position Plot -- ##
+
+rim_data$pos_group <- factor(rim_data$pos_group, 
+                                 levels = c("1", "Wing", "4", "5"))
+
+plotly3 <- rim_data %>%
+  filter(
+    non_dunk_rim_fga > 50,
+    season > 2010
+    ) %>%
+  group_by(player, pos_group) %>%
+  summarise(season = season,
+            rim_fga = sum(rim_fga),
+            rim_accuracy = mean(rim_accuracy),
+            rim_dunk_pct = mean(rim_dunk_pct),
+            non_dunk_rim_accuracy = mean(non_dunk_rim_accuracy),
+            diff_vs_dunk_non_dunk_rim_accuracy = mean(diff_vs_dunk_non_dunk_rim_accuracy),
+            diff_vs_dunk_rim_accuracy = mean(diff_vs_dunk_rim_accuracy)) %>%
+  ggplot(aes(diff_vs_dunk_non_dunk_rim_accuracy, diff_vs_dunk_rim_accuracy)) +
+  facet_wrap(~pos_group) +
+  geom_point(aes(text = paste0(player,
+                               "<br>Season: ", season,
+                               "<br>Rim Accuracy Percentile: ", round((percent_rank(rim_accuracy)*100),0),
+                               "<br>Non-Dunk Rim Accuracy Percentile: ", round((percent_rank(non_dunk_rim_accuracy)*100),0),
+                               "<br>Rim FGA: ", rim_fga,
+                               "<br>Dunk%: ", round((rim_dunk_pct * 100), 0)),
+                 fill = rim_dunk_pct,
+                 color = after_scale(clr_darken(fill, 0.15))),
+             shape = 21, size = 1.5, alpha = .55) +
+  geom_hline(yintercept = 0,
+              slope = 0,
+              size = .25,
+              color = "gray50") +
+  geom_vline(xintercept = 0,
+             slope = 0,
+             size = .25,
+             color = "gray50") +
+  geom_abline(intercept = 0,
+              linetype = "dashed",
+              slope = 1,
+              size = .35,
+              color = "gray50") +
+  scale_fill_gradient2(
+    midpoint = .25,
+    low = "steelblue1",
+    mid = "darkorchid2",
+    high = "coral",
+    labels = function(x) paste0(round(as.numeric(x*100)), "%")) + 
+  scale_x_continuous(
+    labels = function(x) paste0(round(as.numeric(x*100)), "%"), 
+    breaks = seq(-.2, .2, .1), 
+    limits = c(-.2, .2)) + 
+  scale_y_continuous(
+    labels = function(x) paste0(round(as.numeric(x*100)), "%"),
+    breaks = seq(-.2, .2, .1),
+    limits = c(-.2, .2)) + 
+  labs(x = "Diff vs Dunk Group - Non-Dunk FG%", 
+       y = "Diff vs Dunk Group - Rim FG%", 
+       title = "Rim Touch Shots - Difference Between Dunk Group Avg", 
+       subtitle = "Individual season rim accuracy | 2011 - 2021",
+       fill = "Dunk %",
+       color = "Dunk %") +
+  theme_minimal(base_size=12, base_family="Avenir") +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_line(color = 'gray91', size = .5),
+        axis.title.x = element_text(vjust = -1.25),
+        plot.margin = margin(20, 8, 8, 8),
+        axis.title.y = element_text(vjust = 1.25, angle = 90),
+        plot.title = element_text( hjust = 0),
+        plot.subtitle = element_text(hjust = 0.0))
+
+
+ggplotly(plotly3, tooltip = "text") %>%
+  layout(title = list(text = paste0('Difference Between Dunk Group Avg',
+                                    '<br>',
+                                    '<sup>',
+                                    'Individual season rim accuracy | 2011 - 2021',
+                                    '</sup>')))
+
+```
+
+Based on the plot above, dunk rate is largely controlled for via the use of dunk rate groupings (note the lack of a pattern as to where the high/low dunk rates fall above/below the diagonal line). It’s also evident that there isn’t much variance between how a player fares on non-dunks at the rim and all rim attempts, relative to peers. Yet, with dunk rate largely controlled for, differences in skill and/or touch around the rim can be inferred by the variance between the two metrics, however small.
+
+<br></br>
+
+### Analysis
+
+#### YoY Variability
+
+Now that we have our metric of choice - non-dunk rim accuracy less dunk group average - we can evaluate player performance over time. First, let's look at variability of player shooting at the rim relative to dunk group peers. Note, to ensure that variability isn't simply related to changes in a player's dunk rate profile (i.e., what peers they're being compared to), the delta between current and prior season dunks is plotted as the color element in the plot below (plot includes hover functionality).
+
+```{r, message=F, warning=F}
+
+## -- Variability Plot -- ##
+
+delta_data <- cons0_results %>%
+  group_by(entity_id, player, ysd) %>%
+  filter(
+    season > 2015,
+    ysd < 11,
+  ) %>%
+  summarise(season = season,
+            dunk_group = as.numeric(dunk_group),
+            dunk_pct = mean(rim_dunk_pct),
+            blocked_pct = mean(rim_pct_blocked),
+            self_created_rim_pct = mean(self_created_rim_pct),
+            rim_fga = sum(non_dunk_rim_fga),
+            rim_accuracy = mean(rim_accuracy),
+            non_dunk_rim_accuracy = mean(non_dunk_rim_accuracy),
+            touch_rim_accuracy = mean(touch_rim_accuracy),
+            diff_vs_dunk_touch_rim_accuracy = mean(diff_vs_dunk_touch_rim_accuracy),
+            diff_vs_dunk_non_dunk_rim_accuracy = mean(diff_vs_dunk_non_dunk_rim_accuracy),
+            diff_vs_dunk_rim_accuracy = mean(diff_vs_dunk_rim_accuracy)) %>%
+  arrange(player, ysd) %>%
+  mutate(py_rim_att = lag(rim_fga),
+         dunk_att_delta = rim_fga - py_rim_att,
+         # Change in dunk group
+         py_dunk_group = lag(dunk_group),
+         dunk_group_delta = dunk_group - py_dunk_group,
+         # Change in dunk %
+         py_dunk_pct = lag(dunk_pct),
+         dunk_pct_delta = dunk_pct - py_dunk_pct,
+         # Change in blocked %
+         py_blocked_pct = lag(blocked_pct),
+         blocked_pct_delta = blocked_pct - py_blocked_pct,
+         # Change in self created %
+         py_self_created_pct = lag(self_created_rim_pct),
+         self_created_pct_delta = self_created_rim_pct - py_self_created_pct,
+         # Change in rim accuracy
+         py_rim_acc = lag(rim_accuracy),
+         rim_acc_delta = rim_accuracy - py_rim_acc,
+         # Rim % vs dunk group peers
+         py_rim_diff = lag(diff_vs_dunk_rim_accuracy),
+         rim_diff_delta = diff_vs_dunk_rim_accuracy - py_rim_diff,
+         # Change in non-dunk rim accuracy
+         py_nd_rim_acc = lag(non_dunk_rim_accuracy),
+         nd_rim_acc_delta = non_dunk_rim_accuracy - py_nd_rim_acc,
+         # ND Rim % vs dunk group peers
+         py_nd_rim_diff = lag(diff_vs_dunk_non_dunk_rim_accuracy),
+         nd_rim_diff_delta = diff_vs_dunk_non_dunk_rim_accuracy - py_nd_rim_diff,
+         # Touch Rim % vs dunk group peers
+         py_dunk_diff = lag(diff_vs_dunk_touch_rim_accuracy),
+         dunk_diff_delta = diff_vs_dunk_touch_rim_accuracy - py_dunk_diff,
+         # Touch Rim %
+         py_touch = lag(touch_rim_accuracy),
+         touch_delta = touch_rim_accuracy - py_touch) %>%
+  arrange(desc(dunk_att_delta)) %>%
+  filter(rim_fga > 75 & py_rim_att > 75,
+         # Remove one outlier for better color smoothing
+         player != "Isaiah Thomas") 
+
+
+
+delta_plot <- delta_data %>% 
+  ggplot(aes(x = py_nd_rim_diff, y = diff_vs_dunk_non_dunk_rim_accuracy)) +
+  geom_point(aes(text = paste0(player,
+                               "<br>Season: ", season,
+                               "<br>Rim Accuracy Percentile: ", round((percent_rank(non_dunk_rim_accuracy)*100),0),
+                               "<br>PY Rim Accuracy Percentile: ", round((percent_rank(py_nd_rim_acc)*100),0),
+                               "<br>Dunk Attempt Delta: ", dunk_att_delta),
+                 color = dunk_att_delta,
+                 fill = dunk_att_delta),
+             shape = 21, size = 1.5, alpha = .75) +
+  geom_hline(yintercept = 0,
+             size = .35,
+             color = "gray50") +
+  geom_vline(xintercept = 0,
+             size = .35,
+             color = "gray50") +
+  geom_abline(intercept = 0,
+              linetype = "dashed",
+              slope = 1,
+              size = .35,
+              color = "gray50") +
+  scale_x_continuous(
+    labels = function(x) paste0(round(as.numeric(x*100)), "%"), 
+    breaks = seq(-.2, .2, .1), 
+    limits = c(-.2, .2)) + 
+  scale_y_continuous(
+    labels = function(x) paste0(round(as.numeric(x*100)), "%"), 
+    breaks = seq(-.2, .2, .1), 
+    limits = c(-.2, .2)) +
+  labs(x = "Prior Year Non-Dunk FG% Diff", 
+       y = "Non-Dunk FG% Diff", 
+       fill = "Dunk Att Delta",
+       color = "Dunk Att Delta") +
+  scale_color_gradient2(
+    midpoint = 0,
+    low = "blue",
+    mid = "snow2",
+    high = "red") +
+  scale_fill_gradient2(
+    midpoint = 0,
+    low = "blue",
+    mid = "snow2",
+    high = "red") + 
+  theme_personal()
+
+ggplotly(delta_plot, tooltip = "text") %>%
+  layout(title = list(text = paste0('YoY Variability',
+                                    '<br>',
+                                    '<sup>',
+                                    'One year change in non-dunk rim accuracy vs dunk group | 2011 - 2021',
+                                    '</sup>'),
+                      x = .1))
+
+```
+
+As evidenced by the plot above, there's a considerable amount of variability year-to-year (note, a similar pattern exists when using rim accuracy on all shots vs dunk group, as well as rim accuracy overall). There also doesn't appear to be any noticeable pattern explained by changes in players' dunk profile.
+
+<br></br>
+
+#### Direction of Variability
+
+Now that we know accuracy on non-dunks is subject to variability, the next step is to determine whether the variability is directional in any way.
+
+The following plot provides an overview of year-over-year non-dunk rim accuracy relative to dunk group (Note, as the focus is on player performance relative to prior seasons, only players who have at least three seasons of 50+ rim attempts are included in the dataset so that one-off player seasons don't contribute to year-over-year trends. In addition, to capture players' true developmental trajectories, only players whose first or second season was on or after 2010 were included)
+
+
+```{r, message=F, warning=F}
+
+## YoY Aggregate
+
+yoy_rim_data %>%
+  mutate(ysd = (case_when(ysd == 0 ~ 1, ysd == 1 ~ 2, ysd == 2 ~ 3, ysd == 3 ~ 4,
+                          ysd == 4 ~ 5, ysd == 5 ~ 6, ysd == 6 ~ 7, ysd == 7 ~ 8, ysd == 8 ~ 9,
+                          ysd == 9 ~ 10, ysd == 10 ~ 11, ysd == 11 ~ 12, ysd == 12 ~ 13,
+                          ysd == 13 ~ 14, ysd == 14 ~ 15, ysd == 15 ~ 16, ysd == 16 ~ 17,
+                          ysd == 17 ~ 18))) %>%
+  filter(ysd < 11,
+         non_dunk_rim_fga > 50,
+         season > 2010) %>%
+  ggplot(aes(as.factor(ysd), diff_vs_dunk_rim_accuracy)) +
+  theme_minimal(base_size=12, base_family="Avenir") +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_line(color = 'gray91', size = .5),
+        axis.title.x = element_text(vjust = -.75, size = 14),
+        axis.title.y = element_text(vjust = 1.25, angle = 90, size = 14)) +
+  geom_hline(yintercept = 0,
+             size = .35,
+             color = "black") +
+  labs(x = "Year in NBA", 
+       y = "Non-Dunk FG% Diff") +
+  scale_y_continuous(
+    labels = function(x) paste0(round(as.numeric(x*100)), "%"), 
+    breaks = seq(-.2, .2, .1), 
+    limits = c(-.2, .2)) + 
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(color = "grey10", alpha = 0.075, width = .25)
+
+```
+
+Despite a considerable amount of variability between player accuracy within a given season, a clear pattern of improvement is notable through players' 5th and 6th season in the league. While this supports the claim that shooting ability at the rim, like 3-point shooting ability, can be improved, the scope of aggregating all players is too broad to translate to any one player.
+
+<br></br>
+
+#### YoY Progression by Skill Level
+
+One way to narrow the scope is to group players by their ability to convert non-dunks at the rim at their peak. Grouping players this way not only reveals how players of a certain caliber tend to progress over their careers (and whether players of various calibers improve or not), it can be used as a benchmark to compare and/or project players who are still in the early part of their career. 
+
+The criterion used for grouping is the average of a player's two highest accuracy seasons at the rim (their peak skill level). The quartile in which the player's peak falls determines the player's grouping. The quartiles used for grouping are as follows:
+
+ - **< 25th Percentile**: Poor
+ - **26-50th Percentile**: Below Average
+ - **51-75th Percentile**: Above Average
+ - **> 75th Percentile**: Elite
+
+The following plots show the trajectories of players within each group. Note, non-dunk rim accuracy was used to group players for the non-dunk plot, while rim accuracy was used to group players for the plot showing all attempts.
+
+
+##### {.tabset}
+
+###### Non-Dunks vs Dunk Group
+
+```{r, message=F, warning=F}
+
+yoy_rim_data %>%
+  mutate(ysd = (case_when(ysd == 0 ~ 1, ysd == 1 ~ 2, ysd == 2 ~ 3, ysd == 3 ~ 4,
+                          ysd == 4 ~ 5, ysd == 5 ~ 6, ysd == 6 ~ 7, ysd == 7 ~ 8, ysd == 8 ~ 9,
+                          ysd == 9 ~ 10, ysd == 10 ~ 11, ysd == 11 ~ 12, ysd == 12 ~ 13,
+                          ysd == 13 ~ 14, ysd == 14 ~ 15, ysd == 15 ~ 16, ysd == 16 ~ 17,
+                          ysd == 17 ~ 18))) %>%
+  filter(ysd < 11,
+         non_dunk_rim_fga > 50,
+         season > 2010) %>%
+  ggplot(aes(as.factor(ysd), diff_vs_dunk_non_dunk_rim_accuracy)) +
+  facet_wrap(~career_nd_acc_diff_group) +
+  theme_minimal(base_size=12, base_family="Avenir") +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_line(color = 'gray91', size = .5),
+        axis.title.x = element_text(vjust = -.75, size = 14),
+        axis.title.y = element_text(vjust = 1.25, angle = 90, size = 14)) +
+  geom_hline(yintercept = 0,
+             size = .35,
+             color = "black") +
+  labs(x = "Year in NBA", 
+       y = "FG% Diff") +
+  scale_y_continuous(
+    labels = function(x) paste0(round(as.numeric(x*100)), "%"), 
+    breaks = seq(-.2, .2, .1), 
+    limits = c(-.2, .2)) + 
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(color = "grey10", alpha = 0.075, width = .25)
+
+```
+
+
+###### All Attempts vs Dunk Group
+
+```{r, message=F, warning=F}
+
+## YoY By Caliber
+
+yoy_rim_data %>%
+  mutate(ysd = (case_when(ysd == 0 ~ 1, ysd == 1 ~ 2, ysd == 2 ~ 3, ysd == 3 ~ 4,
+                          ysd == 4 ~ 5, ysd == 5 ~ 6, ysd == 6 ~ 7, ysd == 7 ~ 8, ysd == 8 ~ 9,
+                          ysd == 9 ~ 10, ysd == 10 ~ 11, ysd == 11 ~ 12, ysd == 12 ~ 13,
+                          ysd == 13 ~ 14, ysd == 14 ~ 15, ysd == 15 ~ 16, ysd == 16 ~ 17,
+                          ysd == 17 ~ 18))) %>%
+  filter(ysd < 11,
+         non_dunk_rim_fga > 50,
+         season > 2010) %>%
+  ggplot(aes(as.factor(ysd), diff_vs_dunk_rim_accuracy)) +
+  facet_wrap(~career_acc_diff_group) +
+  theme_minimal(base_size=12, base_family="Avenir") +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_line(color = 'gray91', size = .5),
+        axis.title.x = element_text(vjust = -.75, size = 14),
+        axis.title.y = element_text(vjust = 1.25, angle = 90, size = 14)) +
+  geom_hline(yintercept = 0,
+             size = .35,
+             color = "black") +
+  labs(x = "Year in NBA", 
+       y = "FG% Diff") +
+  scale_y_continuous(
+    labels = function(x) paste0(round(as.numeric(x*100)), "%"), 
+    breaks = seq(-.2, .2, .1), 
+    limits = c(-.2, .2)) + 
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(color = "grey10", alpha = 0.075, width = .25)
+
+```
+
+##### {-}
+
+**Observations**
+
+- Improvement is notable across peak skill levels when using either accuracy metric
+
+- The starting point of each trajectory is distinct and tracks with the peak skill level group. In other words, while improvement is notable (especially when using non-dunk accuracy), where a player starts his career in terms of skill level appears meaningful when projecting career trajectory (albeit with a considerable amount of noise)
+
+- Trajectories are similar between rim accuracy and non-dunk accuracy, although there appears to be less variability in the rim accuracy trajectories compared to non-dunk. Perhaps as a result, there's less improvement when using rim accuracy on all attempts.
+
+<br></br>
+
+#### YoY Progression by Position
+
+The final look at non-dunk rim accuracy will expand on peak skill level groups and incorporate player positions to determine if certain types of players improve at different rates, if at all. This includes a plot below in which both the peak skill level and position of are considered.
+
+
+##### {.tabset}
+
+###### Non-Dunks vs Dunk Group by Position
+
+```{r, message=F, warning=F}
+
+## YoY By Position
+
+yoy_rim_data$pos_group <- factor(yoy_rim_data$pos_group, 
+                                 levels = c("1", "Wing", "4", "5"))
+
+yoy_rim_data %>%
+  mutate(ysd = (case_when(ysd == 0 ~ 1, ysd == 1 ~ 2, ysd == 2 ~ 3, ysd == 3 ~ 4,
+                          ysd == 4 ~ 5, ysd == 5 ~ 6, ysd == 6 ~ 7, ysd == 7 ~ 8, ysd == 8 ~ 9,
+                          ysd == 9 ~ 10, ysd == 10 ~ 11, ysd == 11 ~ 12, ysd == 12 ~ 13,
+                          ysd == 13 ~ 14, ysd == 14 ~ 15, ysd == 15 ~ 16, ysd == 16 ~ 17,
+                          ysd == 17 ~ 18))) %>%
+  filter(ysd < 11,
+         non_dunk_rim_fga > 50,
+         season > 2010) %>%
+  ggplot(aes(as.factor(ysd), diff_vs_dunk_non_dunk_rim_accuracy)) +
+  facet_wrap(~pos_group) +
+  theme_minimal(base_size=12, base_family="Avenir") +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_line(color = 'gray91', size = .5),
+        axis.title.x = element_text(vjust = -.75, size = 14),
+        axis.title.y = element_text(vjust = 1.25, angle = 90, size = 14)) +
+  geom_hline(yintercept = 0,
+             size = .35,
+             color = "black") +
+  labs(x = "Year in NBA", 
+       y = "FG% Diff") +
+  scale_y_continuous(
+    labels = function(x) paste0(round(as.numeric(x*100)), "%"), 
+    breaks = seq(-.2, .2, .1), 
+    limits = c(-.2, .2)) + 
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(color = "grey10", alpha = 0.075, width = .25)
+
+```
+
+###### Non-Dunks vs Dunk Group by Position and Caliber
+
+```{r, message=F, warning=F}
+
+## YoY By Position and Caliber
+
+yoy_rim_data$pos_group <- factor(yoy_rim_data$pos_group, 
+                                 levels = c("1", "Wing", "4", "5"))
+
+yoy_rim_data %>%
+  mutate(ysd = (case_when(ysd == 0 ~ 1, ysd == 1 ~ 2, ysd == 2 ~ 3, ysd == 3 ~ 4,
+                          ysd == 4 ~ 5, ysd == 5 ~ 6, ysd == 6 ~ 7, ysd == 7 ~ 8, ysd == 8 ~ 9,
+                          ysd == 9 ~ 10, ysd == 10 ~ 11, ysd == 11 ~ 12, ysd == 12 ~ 13,
+                          ysd == 13 ~ 14, ysd == 14 ~ 15, ysd == 15 ~ 16, ysd == 16 ~ 17,
+                          ysd == 17 ~ 18))) %>%
+  filter(ysd < 11,
+         non_dunk_rim_fga > 50,
+         season > 2005) %>%
+  ggplot(aes(as.factor(ysd), diff_vs_dunk_non_dunk_rim_accuracy)) +
+  facet_grid(rows = vars(career_acc_diff_group), cols = vars(pos_group)) +
+  theme_minimal(base_size=12, base_family="Avenir") +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_line(color = 'gray91', size = .5),
+        axis.title.x = element_text(vjust = -.75, size = 14),
+        axis.title.y = element_text(vjust = 1.25, angle = 90, size = 14)) +
+  geom_hline(yintercept = 0,
+             size = .35,
+             color = "black") +
+  labs(x = "Year in NBA", 
+       y = "FG% Diff") +
+  scale_y_continuous(
+    labels = function(x) paste0(round(as.numeric(x*100)), "%"), 
+    breaks = seq(-.2, .2, .1), 
+    limits = c(-.2, .2)) + 
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(color = "grey10", alpha = 0.075, width = .25)
+
+```
+
+##### {-}
+
+**Observations**
+
+- Trajectories for elite players mostly the same across positions. This is largely similar for the other skill level groups as well.
+
+- Notably lower starting point for the aggregate point guard trajectory. Perhaps due to shorter players requiring more of an adjustment at the rim to begin their careers relative to other positions.
+
+- When looking at skilled rim finishing by position and peak skill level, there are fewer downside outliers for elite point guards as they progress through their careers compared to the other positions, especially 5's. Because it would be unexpected for an acquired skill to be lost so significantly, a possible explanation is that the player's peak elite skilled finishing average was more of a product of context (quality of opportunities or physical inputs) than actual skill. Thus, we can't rely on these trajectories (especially 5's) as much as we can for point guards.
+
+<br></br>
+
+#### Player Examples
+
+Below are a few notable examples of individual player rim accuracy trajectories plotted with their peer benchmarks. Also included in each plot are three metrics meant to provide additional context for any year-over-year variability in rim accuracy. The metrics as well as the reason for inclusion are as follows:
+
+ - **Dunk %**: Large positive/negative movements can infer changes to a player's dunk group for a given season. Also can serve as a proxy for a player's trajectory of athleticism
+ - **Blocked %**: Included due to its significant impact on rim accuracy. Large positive movements can also infer changes to a player's physical profile and health
+ - **Self-Created %**: Offers insight into changes in a player's role year-over-year. A higher percentage of shots at the rim that are self-created likely means that the player is has a role that is less complimentary, and the percent of the player's attempts that are contested is likely higher.
+
+##### {.tabset}
+
+###### Blake Griffin
+
+```{r, message=F, warning=F}
+
+off_player <- "Blake Griffin"
+
+p1 <- rim_data %>%
+  rename(dunk_pct = rim_dunk_pct) %>%
+  mutate(dunk_pct_rank = percent_rank(dunk_pct)) %>%
+  mutate(ysd = (case_when(ysd == 0 ~ 1, ysd == 1 ~ 2, ysd == 2 ~ 3, ysd == 3 ~ 4,
+                          ysd == 4 ~ 5, ysd == 5 ~ 6, ysd == 6 ~ 7, ysd == 7 ~ 8, ysd == 8 ~ 9,
+                          ysd == 9 ~ 10, ysd == 10 ~ 11, ysd == 11 ~ 12, ysd == 12 ~ 13,
+                          ysd == 13 ~ 14, ysd == 14 ~ 15, ysd == 15 ~ 16, ysd == 16 ~ 17,
+                          ysd == 17 ~ 18))) %>%
+  mutate(team = str_replace(team, "NOK", "NOP"),
+         team = str_replace(team, "NOH", "NOP")) %>%
+  filter(
+    player == off_player,
+    non_dunk_rim_fga > 24) %>%
+  select(2:9,
+         non_dunk_rim_accuracy_dunk_avg, non_dunk_rim_fga, 
+         non_dunk_rim_accuracy, non_dunk_rim_accuracy_avg) %>%
+  arrange(ysd) %>%
+  mutate(new_team = ifelse(lead(team) == team, 0, 1),
+         team_label = lead(team)) %>%
+  replace_na(list(new_team = 0))
+
+vlines <- p1$ysd[p1$new_team == 1]
+
+p2 <- ggplot(data = p1, aes(x = ysd)) +
+  geom_vline(
+    xintercept = vlines + if(max(p1$ysd) <= 7){.06} 
+    else if(max(p1$ysd) <= 9){.07}
+    else if(max(p1$ysd) <= 12){.085}
+    else {.13}, 
+    color = "gray85", 
+    linetype = "dashed", 
+    size = .6) +
+  geom_text(mapping = aes(label = ifelse(new_team == 1, p1$team_label, ""), 
+                          y = ifelse(max(p1$non_dunk_rim_accuracy) > .69, .8, .7)),
+            nudge_x = if(max(p1$ysd) <= 7){.23}
+            else if(max(p1$ysd) <= 9){.27}
+            else if(max(p1$ysd) <= 12){.36}
+            else if(max(p1$ysd) <= 15){.5}
+            else {.55},
+            nudge_y = -.02,
+            family = "Avenir",
+            color = "gray65",
+            fontface = "bold",
+            size = 3.3) +
+  geom_text(mapping = aes(label = ifelse(ysd == min(ysd) & p1[1, 13] != 1, p1$team, ""), 
+                          y = ifelse(max(p1$non_dunk_rim_accuracy) > .69, .8, .7)),
+            nudge_x = if(max(p1$ysd) <= 7){.1} 
+            else if(max(p1$ysd) <= 9){.11}
+            else if(max(p1$ysd) <= 12){.12}
+            else if(max(p1$ysd) <= 15){.13} 
+            else {.14},
+            nudge_y = -.02,
+            family = "Avenir",
+            color = "gray65",
+            fontface = "bold",
+            size = 3.3) +
+  geom_line(aes(y = non_dunk_rim_accuracy_dunk_avg, color = "non_dunk_rim_accuracy_dunk_avg"), size = .8) +
+  geom_line(aes(y = non_dunk_rim_accuracy_avg, color = "non_dunk_rim_accuracy_avg"), size = .8) +
+  geom_line(aes(y = non_dunk_rim_accuracy, color = "non_dunk_rim_accuracy"), size = 1) +
+  geom_point(aes(y = non_dunk_rim_accuracy, color = "non_dunk_rim_accuracy", size = pmin(non_dunk_rim_fga, 300))) +
+  scale_color_manual(values = c("dodgerblue3", "gray60", "steelblue1"),
+                     labels = c("Non-Dunk FG%", "Season Avg - All Players", "Season Avg - Dunk Group")) +
+  scale_size_continuous(
+    name = "Non-Dunk Rim Attempts",
+    range = c(1, 5),
+    limits = c(25, 700),
+    breaks = c(25, 100, 200, 300),
+    labels = c("25", "100", "200", "300+")
+  ) +
+  theme_personal() +
+  theme(panel.grid.major.x = element_blank(),
+        legend.position = "top",
+        legend.text = element_text(size = 9),
+        legend.key.height = unit(1, "line"),
+        legend.title = element_text(size = 10),
+        plot.margin = margin(10, 35, 5, 25),
+        plot.title = element_blank(),
+        legend.box.spacing = unit(.01, 'cm'),
+        legend.spacing.x = unit(.1, 'cm'),
+        panel.border = element_blank()
+        ) +
+    scale_y_continuous(
+      labels = function(x) paste0(round(as.numeric(x*100)), "%"), 
+      breaks = seq(.3, .7, .1), 
+      limits = c(.3, .7),
+      expand = c(.01, .01)) +
+  scale_x_continuous(
+    limits = c(min(p1$ysd), ifelse(max(p1$ysd) <= 6, 6, max(p1$ysd))), 
+    breaks = seq(min(p1$ysd), ifelse(max(p1$ysd) <= 6, 6, max(p1$ysd)), 1),
+    expand = c(.01, .01)) + 
+  labs(y = NULL,
+       x = NULL) +
+  guides(size = guide_legend(nrow = 1, title.position = 'top', title.hjust = .5, title.vjust = -.7),
+    color = guide_legend(title = NULL, ncol = 1))
+
+
+p3 <- rim_data %>%
+  mutate(dunk_pct_rank = percent_rank(rim_dunk_pct),
+         blocked_pct_rank = percent_rank(rim_pct_blocked),
+         self_created_pct_rank = percent_rank(self_created_rim_pct)) %>%
+  mutate(ysd = (case_when(ysd == 0 ~ 1, ysd == 1 ~ 2, ysd == 2 ~ 3, ysd == 3 ~ 4, 
+                          ysd == 4 ~ 5, ysd == 5 ~ 6, ysd == 6 ~ 7, ysd == 7 ~ 8, 
+                          ysd == 8 ~ 9, ysd == 9 ~ 10, ysd == 10 ~ 11, ysd == 11 ~ 12, 
+                          ysd == 12 ~ 13, ysd == 13 ~ 14, ysd == 14 ~ 15, ysd == 15 ~ 16, 
+                          ysd == 16 ~ 17, ysd == 17 ~ 18
+  ))) %>%
+  mutate(team = str_replace(team, "NOK", "NOP"),
+         team = str_replace(team, "NOH", "NOP")) %>%
+  filter(player == off_player,
+         non_dunk_rim_fga > 24) %>%
+  select(2:9, 
+         rim_dunk_pct, rim_pct_blocked, self_created_rim_pct)  %>%
+  pivot_longer(
+    cols = contains("rim"),
+    names_to = "metric",
+    values_to = "value"
+  )
+
+
+p4 <- ggplot(data = p3, aes(x = ysd)) +
+  geom_vline(
+    xintercept = vlines + if(max(p3$ysd) <= 7){.06} 
+    else if(max(p3$ysd) <= 9){.07}
+    else if(max(p3$ysd) <= 12){.085}
+    else {.13}, 
+    color = "gray85", 
+    linetype = "dashed", 
+    size = .6) +
+  geom_line(aes(y = value, color = metric), size = .8) +
+  scale_color_manual(values = c("steelblue3", "darkseagreen4", "indianred3"),
+                     labels = c("Dunk %", "Blocked %", "Self created %")) +
+  theme_personal() +
+  scale_x_continuous(
+    limits = c(min(p1$ysd), ifelse(max(p3$ysd) <= 6, 6, max(p3$ysd))), 
+    breaks = seq(min(p1$ysd), ifelse(max(p3$ysd) <= 6, 6, max(p3$ysd)), 1),
+    expand = c(.01, .01)) +
+  scale_y_continuous(
+    labels = function(x) paste0(round(as.numeric(x*100)), "%"), 
+    breaks = seq(0, if(max(p3$value) > .89){1} 
+                 else if(max(p3$value) > .79){.9}
+                 else{.8}, .2), 
+    limits = c(0, if(max(p3$value) > .89){1} 
+               else if(max(p3$value) > .79){.9}
+               else{.8}),
+    expand = c(.01, .01)) +
+  labs(x = "Year in NBA",
+       y = NULL) +
+  theme(legend.position = "bottom",
+        panel.grid.major.x = element_blank(),
+        panel.border = element_blank(),
+        plot.margin = margin(1, 35, -3, 25),
+        axis.title.x = element_text(size = 11),
+        legend.text = element_text(size = 9),
+        legend.box.spacing = unit(.1, 'cm')
+        ) +
+  guides(
+    color = 
+      guide_legend(
+        title = NULL,
+        nrow = 1
+    )) 
+
+
+grid.arrange(p2, p4, ncol = 1, heights = (c(1.7,1)))
+
+
+```
+
+**Observations**
+
+- Despite his high flying reputation early in his career, Griffin was a skilled non-dunk rim finishe, as evidence by the gap between his non-dunk FG% and that of his benchmarks. His ability to maintain this gap as his dunk rate began to fall and his self-created percentage began to rise is also impressive.
+
+- The effects of his knee injuries appear to have a significant impact on his performance in his 10th season, as the percentage of his rim attempts that were blocked exceeded that of his dunk rate.
+
+###### Jaylen Brown
+
+```{r, message=F, warning=F}
+
+off_player <- "Jaylen Brown"
+
+p1 <- rim_data %>%
+  rename(dunk_pct = rim_dunk_pct) %>%
+  mutate(dunk_pct_rank = percent_rank(dunk_pct)) %>%
+  mutate(ysd = (case_when(ysd == 0 ~ 1, ysd == 1 ~ 2, ysd == 2 ~ 3, ysd == 3 ~ 4,
+                          ysd == 4 ~ 5, ysd == 5 ~ 6, ysd == 6 ~ 7, ysd == 7 ~ 8, ysd == 8 ~ 9,
+                          ysd == 9 ~ 10, ysd == 10 ~ 11, ysd == 11 ~ 12, ysd == 12 ~ 13,
+                          ysd == 13 ~ 14, ysd == 14 ~ 15, ysd == 15 ~ 16, ysd == 16 ~ 17,
+                          ysd == 17 ~ 18))) %>%
+  mutate(team = str_replace(team, "NOK", "NOP"),
+         team = str_replace(team, "NOH", "NOP")) %>%
+  filter(
+    player == off_player,
+    non_dunk_rim_fga > 24) %>%
+  select(2:9,
+         non_dunk_rim_accuracy_dunk_avg, non_dunk_rim_fga, 
+         non_dunk_rim_accuracy, non_dunk_rim_accuracy_avg) %>%
+  arrange(ysd) %>%
+  mutate(new_team = ifelse(lead(team) == team, 0, 1),
+         team_label = lead(team)) %>%
+  replace_na(list(new_team = 0))
+
+vlines <- p1$ysd[p1$new_team == 1]
+
+p2 <- ggplot(data = p1, aes(x = ysd)) +
+  geom_vline(
+    xintercept = vlines + if(max(p1$ysd) <= 7){.06} 
+    else if(max(p1$ysd) <= 9){.07}
+    else if(max(p1$ysd) <= 12){.085}
+    else {.13}, 
+    color = "gray85", 
+    linetype = "dashed", 
+    size = .6) +
+  geom_text(mapping = aes(label = ifelse(new_team == 1, p1$team_label, ""), 
+                          y = ifelse(max(p1$non_dunk_rim_accuracy) > .69, .8, .7)),
+            nudge_x = if(max(p1$ysd) <= 7){.23}
+            else if(max(p1$ysd) <= 9){.27}
+            else if(max(p1$ysd) <= 12){.36}
+            else if(max(p1$ysd) <= 15){.5}
+            else {.55},
+            nudge_y = -.02,
+            family = "Avenir",
+            color = "gray65",
+            fontface = "bold",
+            size = 3.3) +
+  geom_text(mapping = aes(label = ifelse(ysd == min(ysd) & p1[1, 13] != 1, p1$team, ""), 
+                          y = ifelse(max(p1$non_dunk_rim_accuracy) > .69, .8, .7)),
+            nudge_x = if(max(p1$ysd) <= 7){.1} 
+            else if(max(p1$ysd) <= 9){.11}
+            else if(max(p1$ysd) <= 12){.12}
+            else if(max(p1$ysd) <= 15){.13} 
+            else {.14},
+            nudge_y = -.02,
+            family = "Avenir",
+            color = "gray65",
+            fontface = "bold",
+            size = 3.3) +
+  geom_line(aes(y = non_dunk_rim_accuracy_dunk_avg, color = "non_dunk_rim_accuracy_dunk_avg"), size = .8) +
+  geom_line(aes(y = non_dunk_rim_accuracy_avg, color = "non_dunk_rim_accuracy_avg"), size = .8) +
+  geom_line(aes(y = non_dunk_rim_accuracy, color = "non_dunk_rim_accuracy"), size = 1) +
+  geom_point(aes(y = non_dunk_rim_accuracy, color = "non_dunk_rim_accuracy", size = pmin(non_dunk_rim_fga, 300))) +
+  scale_color_manual(values = c("dodgerblue3", "gray60", "steelblue1"),
+                     labels = c("Non-Dunk FG%", "Season Avg - All Players", "Season Avg - Dunk Group")) +
+  scale_size_continuous(
+    name = "Non-Dunk Rim Attempts",
+    range = c(1, 5),
+    limits = c(25, 700),
+    breaks = c(25, 100, 200, 300),
+    labels = c("25", "100", "200", "300+")
+  ) +
+  theme_personal() +
+  theme(panel.grid.major.x = element_blank(),
+        legend.position = "top",
+        legend.text = element_text(size = 9),
+        legend.key.height = unit(1, "line"),
+        legend.title = element_text(size = 10),
+        plot.margin = margin(10, 35, 5, 25),
+        plot.title = element_blank(),
+        legend.box.spacing = unit(.01, 'cm'),
+        legend.spacing.x = unit(.1, 'cm'),
+        panel.border = element_blank()
+        ) +
+    scale_y_continuous(
+      labels = function(x) paste0(round(as.numeric(x*100)), "%"), 
+      breaks = seq(.3, .7, .1), 
+      limits = c(.3, .7),
+      expand = c(.01, .01)) +
+  scale_x_continuous(
+    limits = c(min(p1$ysd), ifelse(max(p1$ysd) <= 6, 6, max(p1$ysd))), 
+    breaks = seq(min(p1$ysd), ifelse(max(p1$ysd) <= 6, 6, max(p1$ysd)), 1),
+    expand = c(.01, .01)) + 
+  labs(y = NULL,
+       x = NULL) +
+  guides(size = guide_legend(nrow = 1, title.position = 'top', title.hjust = .5, title.vjust = -.7),
+    color = guide_legend(title = NULL, ncol = 1))
+
+
+p3 <- rim_data %>%
+  mutate(dunk_pct_rank = percent_rank(rim_dunk_pct),
+         blocked_pct_rank = percent_rank(rim_pct_blocked),
+         self_created_pct_rank = percent_rank(self_created_rim_pct)) %>%
+  mutate(ysd = (case_when(ysd == 0 ~ 1, ysd == 1 ~ 2, ysd == 2 ~ 3, ysd == 3 ~ 4, 
+                          ysd == 4 ~ 5, ysd == 5 ~ 6, ysd == 6 ~ 7, ysd == 7 ~ 8, 
+                          ysd == 8 ~ 9, ysd == 9 ~ 10, ysd == 10 ~ 11, ysd == 11 ~ 12, 
+                          ysd == 12 ~ 13, ysd == 13 ~ 14, ysd == 14 ~ 15, ysd == 15 ~ 16, 
+                          ysd == 16 ~ 17, ysd == 17 ~ 18
+  ))) %>%
+  mutate(team = str_replace(team, "NOK", "NOP"),
+         team = str_replace(team, "NOH", "NOP")) %>%
+  filter(player == off_player,
+         non_dunk_rim_fga > 24) %>%
+  select(2:9, 
+         rim_dunk_pct, rim_pct_blocked, self_created_rim_pct)  %>%
+  pivot_longer(
+    cols = contains("rim"),
+    names_to = "metric",
+    values_to = "value"
+  )
+
+
+p4 <- ggplot(data = p3, aes(x = ysd)) +
+  geom_vline(
+    xintercept = vlines + if(max(p3$ysd) <= 7){.06} 
+    else if(max(p3$ysd) <= 9){.07}
+    else if(max(p3$ysd) <= 12){.085}
+    else {.13}, 
+    color = "gray85", 
+    linetype = "dashed", 
+    size = .6) +
+  geom_line(aes(y = value, color = metric), size = .8) +
+  scale_color_manual(values = c("steelblue3", "darkseagreen4", "indianred3"),
+                     labels = c("Dunk %", "Blocked %", "Self created %")) +
+  theme_personal() +
+  scale_x_continuous(
+    limits = c(min(p1$ysd), ifelse(max(p3$ysd) <= 6, 6, max(p3$ysd))), 
+    breaks = seq(min(p1$ysd), ifelse(max(p3$ysd) <= 6, 6, max(p3$ysd)), 1),
+    expand = c(.01, .01)) +
+  scale_y_continuous(
+    labels = function(x) paste0(round(as.numeric(x*100)), "%"), 
+    breaks = seq(0, if(max(p3$value) > .89){1} 
+                 else if(max(p3$value) > .79){.9}
+                 else{.8}, .2), 
+    limits = c(0, if(max(p3$value) > .89){1} 
+               else if(max(p3$value) > .79){.9}
+               else{.8}),
+    expand = c(.01, .01)) +
+  labs(x = "Year in NBA",
+       y = NULL) +
+  theme(legend.position = "bottom",
+        panel.grid.major.x = element_blank(),
+        panel.border = element_blank(),
+        plot.margin = margin(1, 35, -3, 25),
+        axis.title.x = element_text(size = 11),
+        legend.text = element_text(size = 9),
+        legend.box.spacing = unit(.1, 'cm')
+        ) +
+  guides(
+    color = 
+      guide_legend(
+        title = NULL,
+        nrow = 1
+    )) 
+
+
+grid.arrange(p2, p4, ncol = 1, heights = (c(1.7,1)))
+
+
+```
+
+**Observations**
+
+- An impressive improvement in skilled finishing despite a steadily growing percent of finishes being self-created. A model curve to consider for any player performing below their peers initially.
+
+- Shows that while a player's starting point is important when projecting future ability, a player can trend toward an elite level with added skill (and of course, physical development).
+
+
+###### Mitchell Robinson
+
+```{r, message=F, warning=F}
+
+off_player <- "Mitchell Robinson"
+
+p1 <- rim_data %>%
+  rename(dunk_pct = rim_dunk_pct) %>%
+  mutate(dunk_pct_rank = percent_rank(dunk_pct)) %>%
+  mutate(ysd = (case_when(ysd == 0 ~ 1, ysd == 1 ~ 2, ysd == 2 ~ 3, ysd == 3 ~ 4,
+                          ysd == 4 ~ 5, ysd == 5 ~ 6, ysd == 6 ~ 7, ysd == 7 ~ 8, ysd == 8 ~ 9,
+                          ysd == 9 ~ 10, ysd == 10 ~ 11, ysd == 11 ~ 12, ysd == 12 ~ 13,
+                          ysd == 13 ~ 14, ysd == 14 ~ 15, ysd == 15 ~ 16, ysd == 16 ~ 17,
+                          ysd == 17 ~ 18))) %>%
+  mutate(team = str_replace(team, "NOK", "NOP"),
+         team = str_replace(team, "NOH", "NOP")) %>%
+  filter(
+    player == off_player,
+    non_dunk_rim_fga > 24) %>%
+  select(2:9,
+         non_dunk_rim_accuracy_dunk_avg, non_dunk_rim_fga, 
+         non_dunk_rim_accuracy, non_dunk_rim_accuracy_avg) %>%
+  arrange(ysd) %>%
+  mutate(new_team = ifelse(lead(team) == team, 0, 1),
+         team_label = lead(team)) %>%
+  replace_na(list(new_team = 0))
+
+vlines <- p1$ysd[p1$new_team == 1]
+
+p2 <- ggplot(data = p1, aes(x = ysd)) +
+  geom_vline(
+    xintercept = vlines + if(max(p1$ysd) <= 7){.06} 
+    else if(max(p1$ysd) <= 9){.07}
+    else if(max(p1$ysd) <= 12){.085}
+    else {.13}, 
+    color = "gray85", 
+    linetype = "dashed", 
+    size = .6) +
+  geom_text(mapping = aes(label = ifelse(new_team == 1, p1$team_label, ""), 
+                          y = ifelse(max(p1$non_dunk_rim_accuracy) > .69, .8, .7)),
+            nudge_x = if(max(p1$ysd) <= 7){.23}
+            else if(max(p1$ysd) <= 9){.27}
+            else if(max(p1$ysd) <= 12){.36}
+            else if(max(p1$ysd) <= 15){.5}
+            else {.55},
+            nudge_y = -.02,
+            family = "Avenir",
+            color = "gray65",
+            fontface = "bold",
+            size = 3.3) +
+  geom_text(mapping = aes(label = ifelse(ysd == min(ysd) & p1[1, 13] != 1, p1$team, ""), 
+                          y = ifelse(max(p1$non_dunk_rim_accuracy) > .69, .8, .7)),
+            nudge_x = if(max(p1$ysd) <= 7){.1} 
+            else if(max(p1$ysd) <= 9){.11}
+            else if(max(p1$ysd) <= 12){.12}
+            else if(max(p1$ysd) <= 15){.13} 
+            else {.14},
+            nudge_y = -.02,
+            family = "Avenir",
+            color = "gray65",
+            fontface = "bold",
+            size = 3.3) +
+  geom_line(aes(y = non_dunk_rim_accuracy_dunk_avg, color = "non_dunk_rim_accuracy_dunk_avg"), size = .8) +
+  geom_line(aes(y = non_dunk_rim_accuracy_avg, color = "non_dunk_rim_accuracy_avg"), size = .8) +
+  geom_line(aes(y = non_dunk_rim_accuracy, color = "non_dunk_rim_accuracy"), size = 1) +
+  geom_point(aes(y = non_dunk_rim_accuracy, color = "non_dunk_rim_accuracy", size = pmin(non_dunk_rim_fga, 300))) +
+  scale_color_manual(values = c("dodgerblue3", "gray60", "steelblue1"),
+                     labels = c("Non-Dunk FG%", "Season Avg - All Players", "Season Avg - Dunk Group")) +
+  scale_size_continuous(
+    name = "Non-Dunk Rim Attempts",
+    range = c(1, 5),
+    limits = c(25, 700),
+    breaks = c(25, 100, 200, 300),
+    labels = c("25", "100", "200", "300+")
+  ) +
+  theme_personal() +
+  theme(panel.grid.major.x = element_blank(),
+        legend.position = "top",
+        legend.text = element_text(size = 9),
+        legend.key.height = unit(1, "line"),
+        legend.title = element_text(size = 10),
+        plot.margin = margin(10, 35, 5, 25),
+        plot.title = element_blank(),
+        legend.box.spacing = unit(.01, 'cm'),
+        legend.spacing.x = unit(.1, 'cm'),
+        panel.border = element_blank()
+        ) +
+    scale_y_continuous(
+      labels = function(x) paste0(round(as.numeric(x*100)), "%"), 
+      breaks = seq(.3, .7, .1), 
+      limits = c(.3, .7),
+      expand = c(.01, .01)) +
+  scale_x_continuous(
+    limits = c(min(p1$ysd), ifelse(max(p1$ysd) <= 6, 6, max(p1$ysd))), 
+    breaks = seq(min(p1$ysd), ifelse(max(p1$ysd) <= 6, 6, max(p1$ysd)), 1),
+    expand = c(.01, .01)) + 
+  labs(y = NULL,
+       x = NULL) +
+  guides(size = guide_legend(nrow = 1, title.position = 'top', title.hjust = .5, title.vjust = -.7),
+    color = guide_legend(title = NULL, ncol = 1))
+
+
+p3 <- rim_data %>%
+  mutate(dunk_pct_rank = percent_rank(rim_dunk_pct),
+         blocked_pct_rank = percent_rank(rim_pct_blocked),
+         self_created_pct_rank = percent_rank(self_created_rim_pct)) %>%
+  mutate(ysd = (case_when(ysd == 0 ~ 1, ysd == 1 ~ 2, ysd == 2 ~ 3, ysd == 3 ~ 4, 
+                          ysd == 4 ~ 5, ysd == 5 ~ 6, ysd == 6 ~ 7, ysd == 7 ~ 8, 
+                          ysd == 8 ~ 9, ysd == 9 ~ 10, ysd == 10 ~ 11, ysd == 11 ~ 12, 
+                          ysd == 12 ~ 13, ysd == 13 ~ 14, ysd == 14 ~ 15, ysd == 15 ~ 16, 
+                          ysd == 16 ~ 17, ysd == 17 ~ 18
+  ))) %>%
+  mutate(team = str_replace(team, "NOK", "NOP"),
+         team = str_replace(team, "NOH", "NOP")) %>%
+  filter(player == off_player,
+         non_dunk_rim_fga > 24) %>%
+  select(2:9, 
+         rim_dunk_pct, rim_pct_blocked, self_created_rim_pct)  %>%
+  pivot_longer(
+    cols = contains("rim"),
+    names_to = "metric",
+    values_to = "value"
+  )
+
+
+p4 <- ggplot(data = p3, aes(x = ysd)) +
+  geom_vline(
+    xintercept = vlines + if(max(p3$ysd) <= 7){.06} 
+    else if(max(p3$ysd) <= 9){.07}
+    else if(max(p3$ysd) <= 12){.085}
+    else {.13}, 
+    color = "gray85", 
+    linetype = "dashed", 
+    size = .6) +
+  geom_line(aes(y = value, color = metric), size = .8) +
+  scale_color_manual(values = c("steelblue3", "darkseagreen4", "indianred3"),
+                     labels = c("Dunk %", "Blocked %", "Self created %")) +
+  theme_personal() +
+  scale_x_continuous(
+    limits = c(min(p1$ysd), ifelse(max(p3$ysd) <= 6, 6, max(p3$ysd))), 
+    breaks = seq(min(p1$ysd), ifelse(max(p3$ysd) <= 6, 6, max(p3$ysd)), 1),
+    expand = c(.01, .01)) +
+  scale_y_continuous(
+    labels = function(x) paste0(round(as.numeric(x*100)), "%"), 
+    breaks = seq(0, if(max(p3$value) > .89){1} 
+                 else if(max(p3$value) > .79){.9}
+                 else{.8}, .2), 
+    limits = c(0, if(max(p3$value) > .89){1} 
+               else if(max(p3$value) > .79){.9}
+               else{.8}),
+    expand = c(.01, .01)) +
+  labs(x = "Year in NBA",
+       y = NULL) +
+  theme(legend.position = "bottom",
+        panel.grid.major.x = element_blank(),
+        panel.border = element_blank(),
+        plot.margin = margin(1, 35, -3, 25),
+        axis.title.x = element_text(size = 11),
+        legend.text = element_text(size = 9),
+        legend.box.spacing = unit(.1, 'cm')
+        ) +
+  guides(
+    color = 
+      guide_legend(
+        title = NULL,
+        nrow = 1
+    )) 
+
+
+grid.arrange(p2, p4, ncol = 1, heights = (c(1.7,1)))
+
+
+```
+
+**Observations**
+
+- A concerning trend for a player who takes a large portion of their shots near the rim. Robinson's dunking ability and the gravity that comes with it is a crucial part of his value (particularly the alley-oops), but being able to finish consistently when a dunk isn't available is a skill near the top of his priority list.
+
+
+###### DeAndre Jordan
+
+```{r, message=F, warning=F}
+
+off_player <- "DeAndre Jordan"
+
+p1 <- rim_data %>%
+  rename(dunk_pct = rim_dunk_pct) %>%
+  mutate(dunk_pct_rank = percent_rank(dunk_pct)) %>%
+  mutate(ysd = (case_when(ysd == 0 ~ 1, ysd == 1 ~ 2, ysd == 2 ~ 3, ysd == 3 ~ 4,
+                          ysd == 4 ~ 5, ysd == 5 ~ 6, ysd == 6 ~ 7, ysd == 7 ~ 8, ysd == 8 ~ 9,
+                          ysd == 9 ~ 10, ysd == 10 ~ 11, ysd == 11 ~ 12, ysd == 12 ~ 13,
+                          ysd == 13 ~ 14, ysd == 14 ~ 15, ysd == 15 ~ 16, ysd == 16 ~ 17,
+                          ysd == 17 ~ 18))) %>%
+  mutate(team = str_replace(team, "NOK", "NOP"),
+         team = str_replace(team, "NOH", "NOP")) %>%
+  filter(
+    player == off_player,
+    non_dunk_rim_fga > 24) %>%
+  select(2:9,
+         non_dunk_rim_accuracy_dunk_avg, non_dunk_rim_fga, 
+         non_dunk_rim_accuracy, non_dunk_rim_accuracy_avg) %>%
+  arrange(ysd) %>%
+  mutate(new_team = ifelse(lead(team) == team, 0, 1),
+         team_label = lead(team)) %>%
+  replace_na(list(new_team = 0))
+
+vlines <- p1$ysd[p1$new_team == 1]
+
+p2 <- ggplot(data = p1, aes(x = ysd)) +
+  geom_vline(
+    xintercept = vlines + if(max(p1$ysd) <= 7){.06} 
+    else if(max(p1$ysd) <= 9){.07}
+    else if(max(p1$ysd) <= 12){.085}
+    else {.13}, 
+    color = "gray85", 
+    linetype = "dashed", 
+    size = .6) +
+  geom_text(mapping = aes(label = ifelse(new_team == 1, p1$team_label, ""), 
+                          y = ifelse(max(p1$non_dunk_rim_accuracy) > .69, .8, .7)),
+            nudge_x = if(max(p1$ysd) <= 7){.23}
+            else if(max(p1$ysd) <= 9){.27}
+            else if(max(p1$ysd) <= 12){.36}
+            else if(max(p1$ysd) <= 15){.5}
+            else {.55},
+            nudge_y = -.02,
+            family = "Avenir",
+            color = "gray65",
+            fontface = "bold",
+            size = 3.3) +
+  geom_text(mapping = aes(label = ifelse(ysd == min(ysd) & p1[1, 13] != 1, p1$team, ""), 
+                          y = ifelse(max(p1$non_dunk_rim_accuracy) > .69, .8, .7)),
+            nudge_x = if(max(p1$ysd) <= 7){.1} 
+            else if(max(p1$ysd) <= 9){.11}
+            else if(max(p1$ysd) <= 12){.12}
+            else if(max(p1$ysd) <= 15){.13} 
+            else {.14},
+            nudge_y = -.02,
+            family = "Avenir",
+            color = "gray65",
+            fontface = "bold",
+            size = 3.3) +
+  geom_line(aes(y = non_dunk_rim_accuracy_dunk_avg, color = "non_dunk_rim_accuracy_dunk_avg"), size = .8) +
+  geom_line(aes(y = non_dunk_rim_accuracy_avg, color = "non_dunk_rim_accuracy_avg"), size = .8) +
+  geom_line(aes(y = non_dunk_rim_accuracy, color = "non_dunk_rim_accuracy"), size = 1) +
+  geom_point(aes(y = non_dunk_rim_accuracy, color = "non_dunk_rim_accuracy", size = pmin(non_dunk_rim_fga, 300))) +
+  scale_color_manual(values = c("dodgerblue3", "gray60", "steelblue1"),
+                     labels = c("Non-Dunk FG%", "Season Avg - All Players", "Season Avg - Dunk Group")) +
+  scale_size_continuous(
+    name = "Non-Dunk Rim Attempts",
+    range = c(1, 5),
+    limits = c(25, 700),
+    breaks = c(25, 100, 200, 300),
+    labels = c("25", "100", "200", "300+")
+  ) +
+  theme_personal() +
+  theme(panel.grid.major.x = element_blank(),
+        legend.position = "top",
+        legend.text = element_text(size = 9),
+        legend.key.height = unit(1, "line"),
+        legend.title = element_text(size = 10),
+        plot.margin = margin(10, 35, 5, 25),
+        plot.title = element_blank(),
+        legend.box.spacing = unit(.01, 'cm'),
+        legend.spacing.x = unit(.1, 'cm'),
+        panel.border = element_blank()
+        ) +
+    scale_y_continuous(
+      labels = function(x) paste0(round(as.numeric(x*100)), "%"), 
+      breaks = seq(.3, .7, .1), 
+      limits = c(.3, .7),
+      expand = c(.01, .01)) +
+  scale_x_continuous(
+    limits = c(min(p1$ysd), ifelse(max(p1$ysd) <= 6, 6, max(p1$ysd))), 
+    breaks = seq(min(p1$ysd), ifelse(max(p1$ysd) <= 6, 6, max(p1$ysd)), 1),
+    expand = c(.01, .01)) + 
+  labs(y = NULL,
+       x = NULL) +
+  guides(size = guide_legend(nrow = 1, title.position = 'top', title.hjust = .5, title.vjust = -.7),
+    color = guide_legend(title = NULL, ncol = 1))
+
+
+p3 <- rim_data %>%
+  mutate(dunk_pct_rank = percent_rank(rim_dunk_pct),
+         blocked_pct_rank = percent_rank(rim_pct_blocked),
+         self_created_pct_rank = percent_rank(self_created_rim_pct)) %>%
+  mutate(ysd = (case_when(ysd == 0 ~ 1, ysd == 1 ~ 2, ysd == 2 ~ 3, ysd == 3 ~ 4, 
+                          ysd == 4 ~ 5, ysd == 5 ~ 6, ysd == 6 ~ 7, ysd == 7 ~ 8, 
+                          ysd == 8 ~ 9, ysd == 9 ~ 10, ysd == 10 ~ 11, ysd == 11 ~ 12, 
+                          ysd == 12 ~ 13, ysd == 13 ~ 14, ysd == 14 ~ 15, ysd == 15 ~ 16, 
+                          ysd == 16 ~ 17, ysd == 17 ~ 18
+  ))) %>%
+  mutate(team = str_replace(team, "NOK", "NOP"),
+         team = str_replace(team, "NOH", "NOP")) %>%
+  filter(player == off_player,
+         non_dunk_rim_fga > 24) %>%
+  select(2:9, 
+         rim_dunk_pct, rim_pct_blocked, self_created_rim_pct)  %>%
+  pivot_longer(
+    cols = contains("rim"),
+    names_to = "metric",
+    values_to = "value"
+  )
+
+
+p4 <- ggplot(data = p3, aes(x = ysd)) +
+  geom_vline(
+    xintercept = vlines + if(max(p3$ysd) <= 7){.06} 
+    else if(max(p3$ysd) <= 9){.07}
+    else if(max(p3$ysd) <= 12){.085}
+    else {.13}, 
+    color = "gray85", 
+    linetype = "dashed", 
+    size = .6) +
+  geom_line(aes(y = value, color = metric), size = .8) +
+  scale_color_manual(values = c("steelblue3", "darkseagreen4", "indianred3"),
+                     labels = c("Dunk %", "Blocked %", "Self created %")) +
+  theme_personal() +
+  scale_x_continuous(
+    limits = c(min(p1$ysd), ifelse(max(p3$ysd) <= 6, 6, max(p3$ysd))), 
+    breaks = seq(min(p1$ysd), ifelse(max(p3$ysd) <= 6, 6, max(p3$ysd)), 1),
+    expand = c(.01, .01)) +
+  scale_y_continuous(
+    labels = function(x) paste0(round(as.numeric(x*100)), "%"), 
+    breaks = seq(0, if(max(p3$value) > .89){1} 
+                 else if(max(p3$value) > .79){.9}
+                 else{.8}, .2), 
+    limits = c(0, if(max(p3$value) > .89){1} 
+               else if(max(p3$value) > .79){.9}
+               else{.8}),
+    expand = c(.01, .01)) +
+  labs(x = "Year in NBA",
+       y = NULL) +
+  theme(legend.position = "bottom",
+        panel.grid.major.x = element_blank(),
+        panel.border = element_blank(),
+        plot.margin = margin(1, 35, -3, 25),
+        axis.title.x = element_text(size = 11),
+        legend.text = element_text(size = 9),
+        legend.box.spacing = unit(.1, 'cm')
+        ) +
+  guides(
+    color = 
+      guide_legend(
+        title = NULL,
+        nrow = 1
+    )) 
+
+
+grid.arrange(p2, p4, ncol = 1, heights = (c(1.7,1)))
+
+
+```
+
+**Observations**
+
+- Another example of a player adding skill at the rim over the course of their career, despite a dunk rate that has stayed above 40% throughout. Perhaps a good model for Robinson.
+
+##### {-}
+
+### Player Trajectories Shiny App
+
+As a supplement to the analysis herein, trajectories for all qualified players dating back to 2001 are available via a Shiny app [here](https://a-merg.shinyapps.io/yoy_rim_shooting2/?_ga=2.105416773.734871351.1625556918-665941482.1625556918).
+
+<br></br>
+
+### Takeaways
+
+- Finishing touch shots at the rim is an improvable skill demonstrated across positions and roles. 
+
+- Despite the improvement notable across peak skill levels and positions, a players' skill level as they enter the league can be a signal for the player's trajectory (note the average starting points in the "YoY by Skill Level" plots). Perhaps more importantly, however, is whether the player shows improvement early in their career, as evidence by the year-over-year non-dunk field goal percentage of players that eventually reached an elite level of skilled rim finishing.
+
+- The effect of context on measuring skilled rim finishing is significant, and requires a multi-faceted approach. This analysis merely covers one angle.
+
+- Individual player trajectories compared to peer benchmarks and context metrics provide anyone tracking the skill development of a player with a thorough snapshot of the player's year-over-year performance (see the Shiny app for player trajectories).
+
+<br></br>
+
+### Limitations
+
+- There isn't any consideration of the degree to which a shot is contested within the dataset. As a result, players who take a higher percentage of contested shots at the rim (especially against bigger defenders) are negatively impacted. In addition, players who normally dunk uncontested rim attempts are also negatively affected compared to smaller players, who likely have a larger amount of uncontested rim attempts in their respective samples. For this point, however, dunk group helps to mitigate this effect.
+
+- The dataset includes field goal attempts such as tip-ins and finger rolls that don't require the type of shooting ability being analyzed.
+
+- Given the significant relationship that dunk rate has on rim accuracy and non-dunk rim accuracy, grouping players and comparing to their group average will always be susceptible to inter-group differences in dunk rates. The reason for choosing 6 groups instead of 4 was to try and limit this, while also avoiding the smaller samples sizes that would come with choosing more groups.
+
+- The year-over-year data has a considerable amount of noise, which, when considering all of the contextual factors affecting any given rim attempt, make any definitive conclusions difficult to reach.
+
+<br></br>
+
+### Possible Next Steps
+
+- Exclude tip-ins and control for level of contest to improve the validity of the data (would need player tracking data).
+
+- Compare rim shooting trajectories to that of 3-point shooters, potentially using percentage of 3-point shots attempted that are catch and shoot to control for context in a similar way as dunk rate for rim attempts. 
+
+- Build out individual plots similar to that in the corresponding Shiny app, but with the trajectory of whatever benchmark the player development staff deems appropriate. If using the elite skill level group, using names of players within the group may improve saliency of visualization for the player.
+
+
