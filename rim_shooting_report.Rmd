@@ -1531,7 +1531,7 @@ grid.arrange(p2, p4, ncol = 1, heights = (c(1.7,1)))
 
 ### Player Trajectories Shiny App
 
-As a supplement to the analysis herein, trajectories for all qualified players dating back to 2001 are available via a Shiny app [here](https://a-merg.shinyapps.io/yoy_rim_shooting2/?_ga=2.105416773.734871351.1625556918-665941482.1625556918).
+As a supplement to the analysis herein, trajectories for all qualified players dating back to 2001 are available via a Shiny app [here](https://a-merg.shinyapps.io/rim_shooting_app/).
 
 <br></br>
 
